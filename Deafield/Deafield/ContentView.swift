@@ -8,6 +8,7 @@
 import SwiftUI
 import AVFoundation
 import Accelerate
+import CoreHaptics
 
 class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate {
     @Published var isRecording = false
@@ -63,6 +64,7 @@ class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate 
         return averageFrequency
     }
 
+    
     // Function to find dominant frequency in an audio file
     func findDominantFrequencyInAudioFile(at url: URL, sampleRate: Double) {
         do {
@@ -79,29 +81,69 @@ class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate 
                 .map { Double($0) }
 
             // Perform frequency analysis
-            if let averageFrequency = findAverageFrequencyInSineWave(samples, sampleRate: sampleRate, duration: 1.0) {
-                // Ora puoi utilizzare averageFrequency per ottenere il feedback aptico
-                // Esempio: confronta averageFrequency con una soglia e fornisci il feedback aptico di conseguenza
-                let threshold: Double = 1000 // Imposta la tua soglia desiderata
+            if let averageFrequency = findAverageFrequencyInSineWave(samples, sampleRate: sampleRate, duration: 2.0) {
+                // Calculate nextAverageFrequency by analyzing the next second
+                let nextAverageFrequency = findAverageFrequencyInSineWave(samples, sampleRate: sampleRate, duration: 4.0)  // Analyze the next second
 
-                if averageFrequency > threshold {
-                    // Fornisci feedback aptico per il cambio di frequenza
-                    provideHapticFeedback()
+                // Compare averageFrequency at second 2 with nextAverageFrequency at the next second
+                if let nextAverageFrequency = nextAverageFrequency {
+                    let feedbackIntensity: Float
+                    let feedbackSharpness: Float
+
+                    if averageFrequency < nextAverageFrequency {
+                        // Increase the intensity and sharpness of the feedback
+                        feedbackIntensity = 1.0
+                        feedbackSharpness = 1.0
+                    } else {
+                        // Decrease the intensity and sharpness of the feedback
+                        feedbackIntensity = 0.5
+                        feedbackSharpness = 0.5
+                    }
+
+                    // Provide haptic feedback
+                    provideHapticFeedback(intensity: feedbackIntensity, sharpness: feedbackSharpness)
+
+                    // Update the published property
+                    self.dominantFrequencies = [averageFrequency]
                 }
-
-                // Aggiorna la proprietà pubblicata
-                self.dominantFrequencies = [averageFrequency]
             }
         } catch {
             print("Error loading audio file: \(error.localizedDescription)")
         }
     }
+
     
     // Funzione di esempio per fornire il feedback aptico
-    func provideHapticFeedback() {
-        // Implementa la logica per fornire il feedback aptico qui
-        // Ad esempio, utilizza Core Haptics, UIKit, o un'altra libreria appropriata
+    // Funzione che fornisce un feedback aptico personalizzato utilizzando Core Haptics
+    func provideHapticFeedback(intensity: Float, sharpness: Float) {
+        // 1. UINotificationFeedbackGenerator per il feedback aptico predefinito
+        let hapticGenerator = UINotificationFeedbackGenerator()
+        hapticGenerator.notificationOccurred(.success)
+        
+        // 2. CHHapticEngine per il feedback aptico personalizzato
+        let hapticEngine = try? CHHapticEngine()
+        try? hapticEngine?.start()
+
+        // 3. Creazione di un evento haptico con intensità e nitidezza specificate
+        let event = CHHapticEvent(
+            eventType: .hapticTransient,
+            parameters: [
+                CHHapticEventParameter(parameterID: .hapticIntensity, value: intensity),
+                CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness)
+            ],
+            relativeTime: 0
+        )
+
+        // 4. Creazione di un modello haptico contenente l'evento haptico
+        let pattern = try? CHHapticPattern(events: [event], parameters: [])
+
+        // 5. Creazione di un giocatore haptico utilizzando il motore e il modello haptico
+        let player = try? hapticEngine?.makePlayer(with: pattern!)
+
+        // 6. Avvio del giocatore per riprodurre il feedback aptico
+        try? player?.start(atTime: 0)
     }
+
 
     // Function to delete a recording
     func deleteRecording(at offsets: IndexSet) {
